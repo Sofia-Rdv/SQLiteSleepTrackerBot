@@ -1,0 +1,51 @@
+version: 1
+disabled_existing_loggers: false # Не отключать уже существующие логгеры
+
+formatters:                      # Определение форматов сообщений
+  standard:                      # Простой формат
+    format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    datefmt: '%Y-%m-%d %H:%M:%S'
+  detailed:                      # Детальный формат с файлом и номером строки
+    format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s - [%(filename)s:%(lineno)d]'
+    datefmt: '%Y-%m-%d %H:%M:%S'
+
+  # Новый кастомный форматтер для цветного вывода
+  colored_console:
+    class: my_color_formatter.ColoredFormatter # <-- Вот здесь указываем полный путь к классу
+    format: '%(asctime)s - %(name)s - %(levelname)s -%(message)s'
+    datefmt: '%Y-%m-%d %H:%M:%S'
+
+handlers:                       # Определение обработчиков (куда выводить логи)
+  console:                      # Консольный обработчик
+    class: logging.StreamHandler
+    level: DEBUG
+    formatter: colored_console # <-- Привязываем к новому цветному форматтеру
+    stream: ext://sys.stdout    # Вывод в стандартный поток вывода
+
+  file:                         # Файловый обработчик с ротацией
+    class: logging.handlers.RotatingFileHandler
+    level: INFO
+    formatter: detailed
+    filename: logs/app.log      # Имя файла логов
+    maxBytes: 10485760          # 10MB, максимальный размер файла перед ротацией
+    backupCount: 5              # Количество сохраняемых старых логов (папок с логами)
+    encoding: utf8              # Кодировка файла
+
+  error_file:                   # Отдельный файловый обработчик только для ошибок, тоже с ротацией
+    class: logging.handlers.RotatingFileHandler
+    level: ERROR
+    formatter: detailed
+    filename: logs/error.log      # Имя файла логов с ошибками
+    maxBytes: 10485760            # 10MB, максимальный размер файла перед ротацией
+    backupCount: 5                # Количество сохраняемых старых логов (папок с логами)
+    encoding: utf8                # Кодировка файла
+
+loggers:                          # Определение специфичных логгеров
+  my_app:                         # Логгер с именем 'my_app'
+    level: DEBUG                  # Уровень DEBUG для этого логгера
+    handlers: [console, file, error_file]    # Использует все три обработчика
+    propagate: false              # Важно: Не передавать сообщения родительским логгерам
+
+root:                             # Корневой логгер - используется, если не найден логгер 'my_app'
+  level: INFO                     # Уровень INFO для корневого логгера
+  handlers: [console]             # Привязан только к консольному обработчику
