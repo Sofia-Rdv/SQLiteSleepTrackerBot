@@ -47,7 +47,7 @@ class DatabaseManager:
         CREATE TABLE IF NOT EXISTS notes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             notes_text TEXT,
-            sleep_record_id INTEGER NOT NULL,
+            sleep_record_id INTEGER NOT NULL UNIQUE,
             FOREIGN KEY (sleep_record_id) REFERENCES sleep_records(id)
         );
         '''
@@ -133,7 +133,8 @@ class DatabaseManager:
         """
         try:
             # Проверяем, существует ли уже заметка для указанной сессии сна.
-            # Если да, обновляем ее, иначе создаем новую. Это соответствует логике один к одному (одна запись о сне может иметь одну заметку)
+            # Если да, обновляем ее, иначе создаем новую.
+            # Это соответствует логике один к одному (одна запись о сне может иметь одну заметку)
             self.cursor.execute("INSERT OR REPLACE INTO notes (sleep_record_id, notes_text) VALUES (?, ?)",
                                 (sleep_record_id, notes_text))
             self.conn.commit()
@@ -262,4 +263,46 @@ class DatabaseManager:
             print(f'Ошибка при получении статистики сна для пользователя: {e}')
             return 0, 0, 0
 
+
+# Пример использования
+if __name__ == '__main__':
+    db = DatabaseManager()
+    user_id = 123
+    user_name = 'TestUser'
+    db.add_user(user_id, user_name)
+
+    # Проверка незавершенной сессии сна (должно быть None)
+    sr_id, st = db.get_latest_unfinished_sleep_session(user_id)
+    print(f'Незавершенная сессия сна: {sr_id}, {st}')
+
+    # Начало сессии сна
+    sleep_start = datetime.now() - timedelta(hours=8, minutes=30)
+    sleep_record_id = db.start_sleep_session(user_id, sleep_start)
+    print(f'Начата сессия сна с ID: {sleep_record_id}')
+
+    # Проверка незавершенной сессии сна (должно найти)
+    sr_id_check, st_check = db.get_latest_unfinished_sleep_session(user_id)
+    print(f'Незавершенная сессия сна: {sr_id_check}, {st_check}')
+
+    # Завершение сессии сна
+    sleep_end = datetime.now()
+    db.end_sleep_session(sleep_record_id, sleep_end)
+
+    # Добавляем оценку качества сна к завершенной сессии
+    db.update_sleep_quality(sleep_record_id, 5)
+
+    # Добавляем заметку к оценке качества сессии сна
+    db.add_note(sleep_record_id, 'В целом хорошо спалось, но сначала долго засыпала')
+
+    # Получение статистики
+    session, total_duration, avg_duration = db.get_sleep_statistic(user_id)
+    print(f'Статистика для {user_id}: Сессий сна={session}, Общая длительность={total_duration} сек, Средняя длительность={avg_duration}')
+
+    # Проверка завершенной сессии сна без оценки (должно быть None)
+    sr_id_no_q, st_no_q, wt_no_q = db.get_latest_finished_sleep_session_without_quality(user_id, date=sleep_end.date())
+    print(f'Завершенная сессия сна без оценки: {sr_id_no_q}, {st_no_q}, {wt_no_q}')
+
+    # Проверка завершенной сессии сна с оценкой, но без заметки (должно быть None)
+    sr_id_q_no_n, st_q_no_n, wt_q_no_n = db.get_latest_finished_sleep_session_with_quality_without_note(user_id, date=sleep_end.date())
+    print(f'Завершенная сессия сна с оценкой, но без заметки: {sr_id_q_no_n}, {st_q_no_n}, {wt_q_no_n}')
 
