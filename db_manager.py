@@ -169,7 +169,7 @@ class DatabaseManager:
             return None, None
 
     def get_latest_finished_sleep_session_without_quality(
-            self, user_id: int, date: datetime | None = None
+            self, user_id: int, date: date | None = None
     ) -> tuple[int, datetime, datetime] | tuple[None, None, None]:
         """
         Ищет последнюю завершенную сессию без оценки качества сна.
@@ -201,7 +201,7 @@ class DatabaseManager:
             return None, None, None
 
     def get_latest_finished_sleep_session_with_quality_without_note(
-            self, user_id: int, date: datetime | None = None
+            self, user_id: int, date: date | None = None
     ) -> tuple[int, datetime, datetime] | tuple[None, None, None]:
         """
         Ищет последнюю завершенную сессию с оценкой качества сна и без заметки.
