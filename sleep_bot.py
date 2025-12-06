@@ -2,8 +2,6 @@ import os
 import telebot
 from telebot import types
 from datetime import datetime
-from collections import defaultdict
-import json
 # Импортируем DatabaseManager, в нем вся логика работы с БД
 from db_manager import DatabaseManager
 
@@ -312,7 +310,6 @@ def handle_quality(message):
         bot.send_message(user_id, f"Простите, произошла ошибка {e}. Попробуйте еще раз.😔")
 
 
-# обработчик нажатия кнопок
 @bot.callback_query_handler(func=lambda call: call.data.startswith("quality_"))
 def handle_quality_callback(call):
     """
@@ -377,13 +374,74 @@ def handle_notes(message):
         bot.send_message(user_id, f"Простите, произошла ошибка {e}. Попробуйте еще раз.😔")
 
 
+def process_notes_step(message, sleep_record_id):
+    """
+    Записывает комментарий к оценке сна. Обновлена для работы с БД.
+    :param message:
+    :return:
+    """
+    try:
+        # Получаем текст заметки к оценке качества сна
+        notes = message.text
+        user_id = message.chat.id
+        # Используем переданный ID сессии сна и полученный текст заметки
+        db.add_note(sleep_record_id, notes)
+        bot.send_message(user_id, "Спасибо, Ваш комментарий записан!✅")
+    except Exception as e:
+        return f"Простите, произошла ошибка {e}. Попробуйте еще раз.😔"
 
 
+@bot.callback_query_handler(func=lambda call: True)
+def handle_callback(call):
+    """
+    Обрабатывает нажатия на inline кнопки.
+    Каждой кнопке соответствует определенная команда, для этой команды вызывается ее функция-обработчик.
+    :param call:
+    :return:
+    """
+    try:
+        if call.data == '/sleep':
+            handle_sleep(call.message)
+
+        elif call.data == '/wake':
+            handle_wake(call.message)
+
+        elif call.data == '/quality':
+            handle_quality(call.message)
+
+        elif call.data == '/notes':
+            handle_notes(call.message)
+
+        elif call.data == '/recom':
+            handle_recom(call.message)
+
+        elif call.data == '/statis':
+            handle_statistics(call.message)
+
+    except Exception as e:
+        bot.send_message(call.message.chat.id, f"Простите, произошла ошибка {e}. Попробуйте еще раз.😔")
+
+    # подтверждение того, что запрос был получен и обработан
+    bot.answer_callback_query(call.id)
 
 
+@bot.message_handler(func=lambda message: True)
+def all_other_message(message):
+    """
+    Обрабатывает все иные сообщения от пользователя.
+    Просто текстовые сообщения вне комментария к оценке, фото, видео и тд.
+    :param message:
+    :return:
+    """
+    bot.reply_to(message, "Простите, я Вас не понимаю.😔\nПожалуйста, используйте кнопки или команды.😊")
 
 
-
+# Запускаем бота с гарантией закрытия соединения при завершении его работы
+if __name__ == '__main__':
+    try:
+        bot.polling(non_stop=True, interval=0)
+    finally:
+        db._close()
 
 
 
