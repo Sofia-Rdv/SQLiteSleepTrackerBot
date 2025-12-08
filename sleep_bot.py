@@ -346,11 +346,10 @@ def handle_quality_callback(call):
 
 
 @bot.message_handler(commands=['notes'])
-def handle_notes(message):
+def handle_notes(message: types.Message):
     """
-    Обработчик команды notes. Обновлена для работы с БД.
-    :param message:
-    :return:
+    Обработчик команды notes. Позволяет добавлять или обновлять заметки к сессиям сна.
+    :param message: types.Message: Объект сообщения.
     """
     user_id = message.chat.id
     user_name = message.from_user.first_name if message.from_user.first_name else 'Пользователь'
@@ -358,9 +357,18 @@ def handle_notes(message):
 
     try:
         today = datetime.now().date()
-        sleep_record_id, _, _ = db.get_latest_finished_sleep_session_with_quality_without_note(user_id, date=today)
-        if sleep_record_id:
-            bot.send_message(user_id, "Пожалуйста, напишите комментарий к Вашей оценке сна в одном сообщении,"
+        # Ищем сессию сна с оценкой качества сна, независимо от наличия заметки
+        sleep_record_data = db.get_latest_finished_sleep_session_with_quality(user_id, date=today)
+        if sleep_record_data:
+            sleep_record_id, _, _ = sleep_record_data
+
+            # Проверяем есть уже заметка к найденной сессии сна
+            existing_note = db.get_note_by_sleep_record_id(sleep_record_id)
+            if existing_note:
+                bot.send_message(user_id, f'У вас уже есть заметка к этой сессии сна: "{existing_note}".'
+                                          f' Напишите новый комментарий, чтобы обновить ее.😊')
+            else:
+                bot.send_message(user_id, "Пожалуйста, напишите комментарий к Вашей оценке сна в одном сообщении,"
                                       " я все записываю!😊")
             # задаем следующий шаг бота, а именно,
             # вызываем функцию записи комментария пользователя к оценке качества сна и передаем sleep_record_id
@@ -369,26 +377,29 @@ def handle_notes(message):
             markup = types.InlineKeyboardMarkup()
             quality_button = types.InlineKeyboardButton("Качество сна 💫", callback_data='/quality')
             markup.add(quality_button)
-            bot.send_message(user_id, "Сначала Вам нужно поставить оценку качества сна, или заметка уже добавлена.😊", reply_markup=markup)
+            bot.send_message(user_id, "У Вас нет завершенной сессии сна с оченкой качества, "
+                                      "к которой можно добавить заметку. "
+                                      "Пожалуйста, сначала оцените сон.😊", reply_markup=markup)
     except Exception as e:
         bot.send_message(user_id, f"Простите, произошла ошибка {e}. Попробуйте еще раз.😔")
 
 
-def process_notes_step(message, sleep_record_id):
+def process_notes_step(message: types.Message, sleep_record_id: int):
     """
-    Записывает комментарий к оценке сна. Обновлена для работы с БД.
-    :param message:
-    :return:
+    Записывает или обновляет комментарий к оценке сна.
+    :param message: types.Message: Объект сообщения.
+    :param sleep_record_id: int: ID сессии сна.
     """
     try:
         # Получаем текст заметки к оценке качества сна
         notes = message.text
         user_id = message.chat.id
-        # Используем переданный ID сессии сна и полученный текст заметки
+        # add_note() самостоятельно поймет, обновить или добавить комментарий
         db.add_note(sleep_record_id, notes)
         bot.send_message(user_id, "Спасибо, Ваш комментарий записан!✅")
     except Exception as e:
-        return f"Простите, произошла ошибка {e}. Попробуйте еще раз.😔"
+        user_id = message.chat.id
+        bot.send_message(user_id, f"Простите, произошла ошибка {e}. Попробуйте еще раз.😔")
 
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -436,12 +447,10 @@ def all_other_message(message):
     bot.reply_to(message, "Простите, я Вас не понимаю.😔\nПожалуйста, используйте кнопки или команды.😊")
 
 
-# Запускаем бота с гарантией закрытия соединения при завершении его работы
+# Запускаем бота
 if __name__ == '__main__':
-    try:
         bot.polling(non_stop=True, interval=0)
-    finally:
-        db._close()
+
 
 
 
