@@ -201,46 +201,106 @@ class DatabaseManager:
                 f'[{threading.current_thread().name}] Ошибка при получении завершенной сессии без оценки качества сна: {e}')
             return None, None, None
 
-    def get_latest_finished_sleep_session_with_quality_without_note(
+    # def get_latest_finished_sleep_session_with_quality_without_note(
+    #         self, user_id: int, date: datetime.date = None
+    # ) -> tuple[int, datetime, datetime] | tuple[None, None, None]:
+    #     """
+    #     Ищет последнюю завершенную сессию с оценкой качества сна и без заметки. Использует собственное соединение.
+    #     Если date задано, ищет среди сессий завершенных в эту дату.
+    #     :param user_id: int: ID пользователя в телеграмме.
+    #     :param date: datetime.date | None: Дата для поиска завершенной сессии сна в эту дату.
+    #     :return: int | datetime | None: Возвращает ID последней завершенной сессии с оценкой качества сна и без заметки,
+    #                                     ее время начало сна и пробуждение, None в случае ошибки или отсутствия такой записи.
+    #     """
+    #     try:
+    #         query = """
+    #         SELECT sr.id, sr.sleep_time, sr.wake_time
+    #         FROM sleep_records sr
+    #         LEFT JOIN notes n ON sr.id = n.sleep_record_id
+    #         WHERE sr.user_id = ? AND sr.wake_time IS NOT NULL AND sr.sleep_quality IS NOT NULL AND n.id IS NULL
+    #         """
+    #         params = [user_id]
+    #         # Если дата указана, добавляем в запрос сравнение этой даты с датой завершенной сессии сна
+    #         if date:
+    #             query += " AND DATE(sr.wake_time) = ?"
+    #             # добавляем в список параметров дату, преобразовав в формат для SQLite
+    #             params.append(date.isoformat())
+    #         # добавляем в запрос сортировку полученных данных и лимит на 1 запись
+    #         query += " ORDER BY sr.wake_time DESC LIMIT 1"
+    #         with sqlite3.connect(self.db_name) as conn:
+    #             cursor = conn.cursor()
+    #             cursor.execute(query, params)
+    #             result = cursor.fetchone()
+    #         if result:
+    #             print(f'[{threading.current_thread().name}]'
+    #                   f' Найдена завершенная сессия с оценкой качества сна и без заметки для {user_id}: {result}')
+    #             # sleep_record_id, sleep_time, wake_time (преобразованные в формат для Python)
+    #             return result[0], datetime.fromisoformat(result[1]), datetime.fromisoformat(result[2])
+    #         return None, None, None
+    #     except sqlite3.Error as e:
+    #         print(f'[{threading.current_thread().name}]'
+    #               f' Ошибка при получении последней завершенной сессии с оценкой качества сна и без заметки: {e}')
+    #         return None, None, None
+
+    def get_latest_finished_sleep_session_with_quality(
             self, user_id: int, date: datetime.date = None
-    ) -> tuple[int, datetime, datetime] | tuple[None, None, None]:
+    ) -> tuple[int, datetime, datetime] | None:
         """
-        Ищет последнюю завершенную сессию с оценкой качества сна и без заметки. Использует собственное соединение.
+        Ищет последнюю завершенную сессию с оценкой качества сна для данного пользователя.
         Если date задано, ищет среди сессий завершенных в эту дату.
         :param user_id: int: ID пользователя в телеграмме.
         :param date: datetime.date | None: Дата для поиска завершенной сессии сна в эту дату.
-        :return: int | datetime | None: Возвращает ID последней завершенной сессии с оценкой качества сна и без заметки,
-                                        ее время начало сна и пробуждение, None в случае ошибки или отсутствия такой записи.
+        :return: tuple[int, datetime, datetime] | None: Возвращает ID сессии, время начала сна и время пробуждения, если найдено, иначе None.
         """
         try:
             query = """
-            SELECT sr.id, sr.sleep_time, sr.wake_time
-            FROM sleep_records sr
-            LEFT JOIN notes n ON sr.id = n.sleep_record_id
-            WHERE sr.user_id = ? AND sr.wake_time IS NOT NULL AND sr.sleep_quality IS NOT NULL AND n.id IS NULL
+            SELECT id, sleep_time, wake_time
+            FROM sleep_records 
+            WHERE user_id = ? AND wake_time IS NOT NULL AND sleep_quality IS NOT NULL
             """
             params = [user_id]
             # Если дата указана, добавляем в запрос сравнение этой даты с датой завершенной сессии сна
             if date:
-                query += " AND DATE(sr.wake_time) = ?"
+                query += " AND DATE(wake_time) = ?"
                 # добавляем в список параметров дату, преобразовав в формат для SQLite
                 params.append(date.isoformat())
             # добавляем в запрос сортировку полученных данных и лимит на 1 запись
-            query += " ORDER BY sr.wake_time DESC LIMIT 1"
+            query += " ORDER BY wake_time DESC LIMIT 1"
             with sqlite3.connect(self.db_name) as conn:
                 cursor = conn.cursor()
                 cursor.execute(query, params)
                 result = cursor.fetchone()
             if result:
+                sleep_record_id, sleep_time, wake_time = result
                 print(f'[{threading.current_thread().name}]'
-                      f' Найдена завершенная сессия с оценкой качества сна и без заметки для {user_id}: {result}')
-                # sleep_record_id, sleep_time, wake_time (преобразованные в формат для Python)
-                return result[0], datetime.fromisoformat(result[1]), datetime.fromisoformat(result[2])
-            return None, None, None
+                      f' Найдена завершенная сессия с оценкой качества сна {user_id}: {result}')
+                # sleep_time, wake_time (преобразованные в формат для Python)
+                return sleep_record_id, datetime.fromisoformat(sleep_time), datetime.fromisoformat(wake_time)
+            return None
         except sqlite3.Error as e:
             print(f'[{threading.current_thread().name}]'
-                  f' Ошибка при получении последней завершенной сессии с оценкой качества сна и без заметки: {e}')
-            return None, None, None
+                  f' Ошибка при получении последней завершенной сессии с оценкой качества: {e}')
+            return None
+
+    def get_note_by_sleep_record_id(self, sleep_record_id: int) -> str | None:
+        """
+        Возвращает текст заметки для указанной сессии сна.
+        :param sleep_record_id: int: ID сессии сна.
+        :return: str | None: Текст заметки, если она существует, иначе None.
+        """
+        try:
+            with sqlite3.connect(self.db_name) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT notes_text FROM notes WHERE sleep_record_id = ?", (sleep_record_id,))
+                result = cursor.fetchone()
+            if result:
+                print(f'[{threading.current_thread().name}] Текст заметки {result[0]} для сессии {sleep_record_id} получен.')
+                return result[0]
+            return None
+        except sqlite3.Error as e:
+            print(f'[{threading.current_thread().name}] Ошибка при получении текста заметки: {e}')
+            return None
+
 
     def get_sleep_statistic(self, user_id: int) -> tuple[int, int, int]:
         """
