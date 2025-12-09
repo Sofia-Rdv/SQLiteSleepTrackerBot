@@ -79,7 +79,9 @@ def send_welcome(message: types.Message):
 @bot.message_handler(commands=['help'])
 def handle_help(message: types.Message):
     """
-    Обрабатывает команду help
+    Обрабатывает команду help.
+    Создает inline и Reply клавиатуры для кнопок с callback_data - командами и обычными.
+    Отправляет пользователю сообщение с доступными командами и клавиатурой.
     :param message: types.Message: Объект сообщения.
     """
     # создаем inline клавиатуру
@@ -97,7 +99,6 @@ def handle_help(message: types.Message):
     markup.add(recom_button)
     markup.add(statis_inl_button)
 
-    # отправляем сообщение с доступными командами и клавиатурой
     bot.send_message(message.chat.id, """Список доступных команд:
     /sleep - начало сна. Выбирайте эту команду, когда ложитесь спать!(или кнопка 'Сладких снов 😴')
     /wake - конец сна. Выбирайте эту команду, когда проснулись!(или кнопка 'Я проснулся ☀')
@@ -137,11 +138,11 @@ def handle_recom(message: types.Message):
 7. Полезно пить чай с мелиссой, он обладает мягким успокаивающим и расслабляющим эффектом 🍵""")
 
 
-def calculate_sleep_statistics(user_id):
+def calculate_sleep_statistics(user_id: int) -> str:
     """
     Рассчитывает статистику сна для пользователя.
-    :param user_id: ID пользователя в телеграмме.
-    :return:
+    :param user_id: int: ID пользователя в телеграмме.
+    :return: str: Текст со статистикой сна или с уведомлением о том, что данных о сне нет.
     """
     try:
         total_session, total_sleep_duration_sec, average_sleep_duration_sec = db.get_sleep_statistic(user_id)
@@ -311,13 +312,12 @@ def handle_quality(message: types.Message):
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("quality_"))
-def handle_quality_callback(call):
+def handle_quality_callback(call: types.CallbackQuery):
     """
     Обрабатывает нажатие на кнопки оценки качества сна.
     Извлекает из callback_data необходимые данные (оценка, ID сессии), предварительно разделив на части.
     Добавляет оценку качества сна, для найденной ранее сессии, в базу данных.
-    :param call:
-    :return:
+    :param call: types.CallbackQuery: Объект CallbackQuery, содержащий данные о нажатой inline - кнопке.
     """
     user_id = call.from_user.id
     try:
@@ -368,14 +368,18 @@ def handle_notes(message: types.Message):
             # Проверяем наличие заметки к найденной сессии сна
             existing_note = db.get_note_by_sleep_record_id(sleep_record_id)
             if existing_note:
+                markup_n = types.InlineKeyboardMarkup()
+                button_yes = types.InlineKeyboardButton('Да, обнови', callback_data=f'update_yes_{sleep_record_id}')
+                button_no = types.InlineKeyboardButton('Нет', callback_data=f'update_no_{sleep_record_id}')
+                markup_n.add(button_yes, button_no)
                 bot.send_message(user_id, f'У вас уже есть заметка к последней оцененной сессии сна: "{existing_note}".'
-                                          f' Напишите новый комментарий, чтобы обновить ее.😊')
+                                          f'Хотите обновить текущую заметку?', reply_markup=markup_n)
             else:
                 bot.send_message(user_id, "Пожалуйста, напишите комментарий к Вашей оценке сна в одном сообщении,"
                                       " я все записываю!😊")
-            # задаем следующий шаг бота, а именно,
-            # вызываем функцию записи комментария пользователя к оценке качества сна и передаем sleep_record_id
-            bot.register_next_step_handler(message, process_notes_step, sleep_record_id)
+                # задаем следующий шаг бота, а именно,
+                # вызываем функцию записи комментария пользователя к оценке качества сна и передаем sleep_record_id
+                bot.register_next_step_handler(message, process_notes_step, sleep_record_id)
         else:
             markup = types.InlineKeyboardMarkup()
             quality_button = types.InlineKeyboardButton("Качество сна 💫", callback_data='/quality')
@@ -387,30 +391,51 @@ def handle_notes(message: types.Message):
         bot.send_message(user_id, f"Простите, произошла ошибка {e}. Попробуйте еще раз.😔")
 
 
+@bot.callback_query_handler(func=lambda call: call.data.startswith("update_"))
+def handle_notes_update_callback(call: types.CallbackQuery):
+    """
+    Обрабатывает нажатие на кнопки согласия или отказа в обновлении текущей заметки к оценке качества сна.
+    :param call: types.CallbackQuery: Объект CallbackQuery, содержащий данные о нажатой inline - кнопке.
+    """
+    user_id = call.from_user.id
+    try:
+        parts = call.data.split('_')
+        yes_no = parts[1]
+        sleep_record_id = int(parts[2])
+        if yes_no == 'yes':
+            bot.edit_message_text(chat_id=user_id, message_id=call.message.message_id,
+                                  text='Пожалуйста, напишите новый комментарий, чтобы обновить ее.😊')
+            bot.register_next_step_handler(call.message, process_notes_step, sleep_record_id)
+        elif yes_no == 'no':
+            bot.edit_message_text(chat_id=user_id, message_id=call.message.message_id,
+                                  text='Хорошо, Ваша заметка останется без изменений.😊')
+    except Exception as e:
+        bot.send_message(user_id, f"Простите, произошла ошибка {e}. Попробуйте еще раз.😔")
+
+
 def process_notes_step(message: types.Message, sleep_record_id: int):
     """
     Записывает или обновляет комментарий к оценке сна.
     :param message: types.Message: Объект сообщения.
     :param sleep_record_id: int: ID сессии сна.
     """
+    user_id = message.chat.id
     try:
         # Получаем текст заметки к оценке качества сна
         notes = message.text
-        user_id = message.chat.id
         # add_note() самостоятельно поймет, обновить или добавить комментарий
         db.add_note(sleep_record_id, notes)
         bot.send_message(user_id, "Спасибо, Ваш комментарий записан!✅")
     except Exception as e:
-        user_id = message.chat.id
         bot.send_message(user_id, f"Простите, произошла ошибка {e}. Попробуйте еще раз.😔")
 
 
 @bot.callback_query_handler(func=lambda call: True)
-def handle_callback(call):
+def handle_callback(call: types.CallbackQuery):
     """
     Обрабатывает нажатия на inline кнопки.
     Каждой кнопке соответствует определенная команда, для этой команды вызывается ее функция-обработчик.
-    :param call:
+    :param call: types.CallbackQuery: Объект CallbackQuery, содержащий данные о нажатой inline - кнопке.
     """
     try:
         if call.data == '/sleep':
