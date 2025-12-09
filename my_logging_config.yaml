@@ -3,16 +3,16 @@ disabled_existing_loggers: false # Не отключать уже существ
 
 formatters:                      # Определение форматов сообщений
   standard:                      # Простой формат
-    format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format: '%(asctime)s - %(name)s - %(levelname)s - [%(threadName)s] - %(message)s'
     datefmt: '%Y-%m-%d %H:%M:%S'
   detailed:                      # Детальный формат с файлом и номером строки
-    format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s - [%(filename)s:%(lineno)d]'
+    format: '%(asctime)s - %(name)s - %(levelname)s - [%(threadName)s] - %(message)s - [%(filename)s:%(lineno)d]'
     datefmt: '%Y-%m-%d %H:%M:%S'
 
   # Новый кастомный форматтер для цветного вывода
   colored_console:
     class: my_color_formatter.ColoredFormatter # <-- Вот здесь указываем полный путь к классу
-    format: '%(asctime)s - %(name)s - %(levelname)s -%(message)s'
+    format: '%(asctime)s - %(name)s - %(levelname)s - [%(threadName)s] - %(message)s'
     datefmt: '%Y-%m-%d %H:%M:%S'
 
 handlers:                       # Определение обработчиков (куда выводить логи)
