@@ -1,7 +1,15 @@
 import sqlite3
+import logging
 from datetime import datetime, timedelta
-# Импортируем threading для отлдочных принтов, чтобы видеть какой поток работает
+# Импортируем threading для отладочных принтов, чтобы видеть какой поток работает
 import threading
+# Импортируем функцию настройки логирования из файла с конфигурацией
+from my_logger_config import setup_logging
+# Вызов функции настройки логирования (ОДИН РАЗ) при запуске программы
+setup_logging()
+
+# Получение экземпляра логгера
+logger = logging.getLogger('my_app')
 
 
 class DatabaseManager:
@@ -47,9 +55,9 @@ class DatabaseManager:
                 # Создает таблицу notes
                 cursor.execute(sql_notes)
             # Изменения в БД сохранятся автоматически с помощью with
-            print(f'[{threading.current_thread().name}] Таблицы успешно созданы или уже существуют')
+            logger.info(f'Таблицы успешно созданы или уже существуют.')
         except sqlite3.Error as e:
-            print(f'[{threading.current_thread().name}] Ошибка при создании таблиц: {e}')
+            logger.error(f'Ошибка при создании таблиц: {e}', exc_info=True)
 
     def add_user(self, user_id: int, user_name: str):
         """
@@ -61,10 +69,9 @@ class DatabaseManager:
             with sqlite3.connect(self.db_name) as conn:
                 cursor = conn.cursor()
                 cursor.execute("INSERT OR IGNORE INTO users (id, name) VALUES (?, ?)", (user_id, user_name))
-            print(
-                f'[{threading.current_thread().name}] Пользователь {user_name} ({user_id}) добавлен или уже существует в БД')
+            logger.info(f'Пользователь {user_name} ({user_id}) добавлен или уже существует в БД.')
         except sqlite3.Error as e:
-            print(f'[{threading.current_thread().name}] Ошибка при добавлении пользователя в БД: {e}')
+            logger.error(f'Ошибка при добавлении пользователя в БД: {e}', exc_info=True)
 
     def start_sleep_session(self, user_id: int, sleep_time: datetime) -> int | None:
         """
@@ -79,10 +86,11 @@ class DatabaseManager:
                 # Добавляем время начала сна(преобразованное для SQLite) для указанного пользователя в таблицу с сессиями сна
                 cursor.execute("INSERT INTO sleep_records (user_id, sleep_time) VALUES (?, ?)",
                                (user_id, sleep_time.isoformat()))
+                logger.info(f'Начата новая сессия сна с ID {cursor.lastrowid}.')
                 # Возвращаем ID новой записи сна
                 return cursor.lastrowid
         except sqlite3.Error as e:
-            print(f'[{threading.current_thread().name}] Ошибка при начале сессии сна: {e}')
+            logger.error(f'Ошибка при начале сессии сна: {e}', exc_info=True)
             return None
 
     def end_sleep_session(self, sleep_record_id: int, wake_time: datetime):
@@ -97,9 +105,9 @@ class DatabaseManager:
                 # Добавляем время пробуждение преобразованное для SQLite
                 cursor.execute("UPDATE sleep_records SET wake_time = ? WHERE id = ?",
                                (wake_time.isoformat(), sleep_record_id))
-            print(f'[{threading.current_thread().name}] Сессия сна {sleep_record_id} завершена.')
+            logger.info(f'Сессия сна {sleep_record_id} завершена.')
         except sqlite3.Error as e:
-            print(f'[{threading.current_thread().name}] Ошибка при завершении сессии сна: {e}')
+            logger.error(f'Ошибка при завершении сессии сна: {e}', exc_info=True)
 
     def update_sleep_quality(self, sleep_record_id: int, quality: int):
         """
@@ -113,28 +121,26 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 cursor.execute("UPDATE sleep_records SET sleep_quality = ? WHERE id = ?",
                                (quality, sleep_record_id))
-            print(
-                f'[{threading.current_thread().name}] Оценка качества сна для сессии {sleep_record_id} обновлена на {quality}')
+            logger.info(f'Оценка качества сна для сессии {sleep_record_id} обновлена на {quality}')
         except sqlite3.Error as e:
-            print(f'[{threading.current_thread().name}] Ошибка при обновлении оценки качества сна: {e}')
+            logger.error(f'Ошибка при обновлении оценки качества сна: {e}', exc_info=True)
 
     def add_note(self, sleep_record_id: int, notes_text: str):
         """
         Добавляет заметку к записи сна. Использует собственное соединение.
         Проверяет, существует ли уже заметка для указанной сессии сна. Если да, обновляет ее, иначе создает новую.
-        Это соответствует логике один к одному (одна запись о сне может иметь одну заметку)
+        Это соответствует логике один к одному (одна запись о сне может иметь одну заметку).
         :param sleep_record_id: int: ID сессии сна.
-        :param notes_text: str: Текст заметки
-        :return:
+        :param notes_text: str: Текст заметки.
         """
         try:
             with sqlite3.connect(self.db_name) as conn:
                 cursor = conn.cursor()
                 cursor.execute("INSERT OR REPLACE INTO notes (sleep_record_id, notes_text) VALUES (?, ?)",
                                (sleep_record_id, notes_text))
-            print(f'[{threading.current_thread().name}] Заметка к сессии сна {sleep_record_id} добавлена/обновлена')
+            logger.info(f'Заметка к сессии сна {sleep_record_id} добавлена/обновлена')
         except sqlite3.Error as e:
-            print(f'[{threading.current_thread().name}] Ошибка при добавлении заметки к сессии сна: {e}')
+            logger.error(f'Ошибка при добавлении заметки к сессии сна: {e}', exc_info=True)
 
     def get_latest_unfinished_sleep_session(self, user_id: int) -> tuple[int, datetime] | tuple[None, None]:
         """
@@ -157,12 +163,12 @@ class DatabaseManager:
                 cursor.execute(sql_select, (user_id,))
                 result = cursor.fetchone()
             if result:
-                print(f'[{threading.current_thread().name}] Найдена незавершенная сессия сна для {user_id}: {result}')
+                logger.info(f'Найдена незавершенная сессия сна для {user_id}: {result}')
                 # sleep_record_id, sleep_time(преобразованное в формат для Python)
                 return result[0], datetime.fromisoformat(result[1])
             return None, None
         except sqlite3.Error as e:
-            print(f'[{threading.current_thread().name}] Ошибка при получении последней незавершенной сессии сна: {e}')
+            logger.error(f'Ошибка при получении последней незавершенной сессии сна: {e}', exc_info=True)
             return None, None
 
     def get_latest_finished_sleep_session_without_quality(
@@ -173,11 +179,15 @@ class DatabaseManager:
         Если date задано, ищет среди сессий завершенных в эту дату.
         :param user_id: int: ID пользователя в телеграмме.
         :param date: datetime.date | None: Дата для поиска завершенной сессии сна в эту дату.
-        :return: int | datetime | None: Возвращает ID последней завершенной сессии без оценки качества сна,
-                                        ее время начало сна и пробуждение, None в случае ошибки или отсутствия такой записи.
+        :return: tuple[int, datetime, datetime] | tuple[None, None, None]:
+                                Возвращает ID сессии, время начала сна и время пробуждения, если найдено, иначе None.
         """
         try:
-            query = "SELECT id, sleep_time, wake_time FROM sleep_records WHERE user_id = ? AND wake_time IS NOT NULL AND sleep_quality IS NULL"
+            query = """
+            SELECT id, sleep_time, wake_time
+            FROM sleep_records
+            WHERE user_id = ? AND wake_time IS NOT NULL AND sleep_quality IS NULL
+            """
             params = [user_id]
             # Если дата указана, добавляем в запрос сравнение этой даты с датой завершенной сессии сна
             if date:
@@ -191,56 +201,13 @@ class DatabaseManager:
                 cursor.execute(query, params)
                 result = cursor.fetchone()
             if result:
-                print(
-                    f'[{threading.current_thread().name}] Найдена завершенная сессия без оценки качества сна для {user_id}: {result}')
+                logger.info(f'Найдена завершенная сессия без оценки качества сна для {user_id}: {result}.')
                 # sleep_record_id, sleep_time, wake_time (преобразованные в формат для Python)
                 return result[0], datetime.fromisoformat(result[1]), datetime.fromisoformat(result[2])
             return None, None, None
         except sqlite3.Error as e:
-            print(
-                f'[{threading.current_thread().name}] Ошибка при получении завершенной сессии без оценки качества сна: {e}')
+            logger.error(f'Ошибка при получении завершенной сессии без оценки качества сна: {e}', exc_info=True)
             return None, None, None
-
-    # def get_latest_finished_sleep_session_with_quality_without_note(
-    #         self, user_id: int, date: datetime.date = None
-    # ) -> tuple[int, datetime, datetime] | tuple[None, None, None]:
-    #     """
-    #     Ищет последнюю завершенную сессию с оценкой качества сна и без заметки. Использует собственное соединение.
-    #     Если date задано, ищет среди сессий завершенных в эту дату.
-    #     :param user_id: int: ID пользователя в телеграмме.
-    #     :param date: datetime.date | None: Дата для поиска завершенной сессии сна в эту дату.
-    #     :return: int | datetime | None: Возвращает ID последней завершенной сессии с оценкой качества сна и без заметки,
-    #                                     ее время начало сна и пробуждение, None в случае ошибки или отсутствия такой записи.
-    #     """
-    #     try:
-    #         query = """
-    #         SELECT sr.id, sr.sleep_time, sr.wake_time
-    #         FROM sleep_records sr
-    #         LEFT JOIN notes n ON sr.id = n.sleep_record_id
-    #         WHERE sr.user_id = ? AND sr.wake_time IS NOT NULL AND sr.sleep_quality IS NOT NULL AND n.id IS NULL
-    #         """
-    #         params = [user_id]
-    #         # Если дата указана, добавляем в запрос сравнение этой даты с датой завершенной сессии сна
-    #         if date:
-    #             query += " AND DATE(sr.wake_time) = ?"
-    #             # добавляем в список параметров дату, преобразовав в формат для SQLite
-    #             params.append(date.isoformat())
-    #         # добавляем в запрос сортировку полученных данных и лимит на 1 запись
-    #         query += " ORDER BY sr.wake_time DESC LIMIT 1"
-    #         with sqlite3.connect(self.db_name) as conn:
-    #             cursor = conn.cursor()
-    #             cursor.execute(query, params)
-    #             result = cursor.fetchone()
-    #         if result:
-    #             print(f'[{threading.current_thread().name}]'
-    #                   f' Найдена завершенная сессия с оценкой качества сна и без заметки для {user_id}: {result}')
-    #             # sleep_record_id, sleep_time, wake_time (преобразованные в формат для Python)
-    #             return result[0], datetime.fromisoformat(result[1]), datetime.fromisoformat(result[2])
-    #         return None, None, None
-    #     except sqlite3.Error as e:
-    #         print(f'[{threading.current_thread().name}]'
-    #               f' Ошибка при получении последней завершенной сессии с оценкой качества сна и без заметки: {e}')
-    #         return None, None, None
 
     def get_latest_finished_sleep_session_with_quality(
             self, user_id: int, date: datetime.date = None
@@ -272,14 +239,12 @@ class DatabaseManager:
                 result = cursor.fetchone()
             if result:
                 sleep_record_id, sleep_time, wake_time = result
-                print(f'[{threading.current_thread().name}]'
-                      f' Найдена завершенная сессия с оценкой качества сна {user_id}: {result}')
+                logger.info(f'Найдена завершенная сессия с оценкой качества сна {user_id}: {result}.')
                 # sleep_time, wake_time (преобразованные в формат для Python)
                 return sleep_record_id, datetime.fromisoformat(sleep_time), datetime.fromisoformat(wake_time)
             return None
         except sqlite3.Error as e:
-            print(f'[{threading.current_thread().name}]'
-                  f' Ошибка при получении последней завершенной сессии с оценкой качества: {e}')
+            logger.error(f'Ошибка при получении последней завершенной сессии с оценкой качества: {e}', exc_info=True)
             return None
 
     def get_note_by_sleep_record_id(self, sleep_record_id: int) -> str | None:
@@ -294,19 +259,18 @@ class DatabaseManager:
                 cursor.execute("SELECT notes_text FROM notes WHERE sleep_record_id = ?", (sleep_record_id,))
                 result = cursor.fetchone()
             if result:
-                print(f'[{threading.current_thread().name}] Текст заметки {result[0]} для сессии {sleep_record_id} получен.')
+                logger.info(f'Текст заметки {result[0]} для сессии {sleep_record_id} получен.')
                 return result[0]
             return None
         except sqlite3.Error as e:
-            print(f'[{threading.current_thread().name}] Ошибка при получении текста заметки: {e}')
+            logger.error(f'Ошибка при получении текста заметки: {e}', exc_info=True)
             return None
-
 
     def get_sleep_statistic(self, user_id: int) -> tuple[int, int, int]:
         """
         Рассчитывает статистику сна для пользователя. Использует собственное соединение.
         :param user_id: int: ID пользователя в телеграмме.
-        :return: int : Возвращает общее количество сессий сна, общее и среднее количество сна в секундах,
+        :return: tuple[int, int, int] : Возвращает общее количество сессий сна, общее и среднее количество сна в секундах,
                        0 в случае ошибки или отсутствия завершенных сессий сна.
         """
         try:
@@ -325,52 +289,9 @@ class DatabaseManager:
                 return 0, 0, 0
 
             average_sleep_duration_seconds = (total_sleep_duration_seconds / total_session) if total_session > 0 else 0
+            logger.info(f'Статистики сна для пользователя ({user_id}) получена.')
             return total_session, total_sleep_duration_seconds, average_sleep_duration_seconds
         except sqlite3.Error as e:
-            print(f'[{threading.current_thread().name}] Ошибка при получении статистики сна для пользователя: {e}')
+            logger.error(f'Ошибка при получении статистики сна для пользователя: {e}', exc_info=True)
             return 0, 0, 0
 
-
-# Пример использования
-if __name__ == '__main__':
-    db = DatabaseManager()
-    user_id = 123
-    user_name = 'TestUser'
-    db.add_user(user_id, user_name)
-
-    # Проверка незавершенной сессии сна (должно быть None)
-    sr_id, st = db.get_latest_unfinished_sleep_session(user_id)
-    print(f'Незавершенная сессия сна: {sr_id}, {st}')
-
-    # Начало сессии сна
-    sleep_start = datetime.now() - timedelta(hours=8, minutes=30)
-    sleep_record_id = db.start_sleep_session(user_id, sleep_start)
-    print(f'Начата сессия сна с ID: {sleep_record_id}')
-
-    # Проверка незавершенной сессии сна (должно найти)
-    sr_id_check, st_check = db.get_latest_unfinished_sleep_session(user_id)
-    print(f'Незавершенная сессия сна: {sr_id_check}, {st_check}')
-
-    # Завершение сессии сна
-    sleep_end = datetime.now()
-    db.end_sleep_session(sleep_record_id, sleep_end)
-
-    # Добавляем оценку качества сна к завершенной сессии
-    db.update_sleep_quality(sleep_record_id, 5)
-
-    # Добавляем заметку к оценке качества сессии сна
-    db.add_note(sleep_record_id, 'В целом хорошо спалось, но сначала долго засыпала')
-
-    # Получение статистики
-    session, total_duration, avg_duration = db.get_sleep_statistic(user_id)
-    print(
-        f'Статистика для {user_id}: Сессий сна={session}, Общая длительность={total_duration} сек, Средняя длительность={avg_duration}')
-
-    # Проверка завершенной сессии сна без оценки (должно быть None)
-    sr_id_no_q, st_no_q, wt_no_q = db.get_latest_finished_sleep_session_without_quality(user_id, date=sleep_end.date())
-    print(f'Завершенная сессия сна без оценки: {sr_id_no_q}, {st_no_q}, {wt_no_q}')
-
-    # Проверка завершенной сессии сна с оценкой, но без заметки (должно быть None)
-    sr_id_q_no_n, st_q_no_n, wt_q_no_n = db.get_latest_finished_sleep_session_with_quality_without_note(user_id,
-                                                                                                        date=sleep_end.date())
-    print(f'Завершенная сессия сна с оценкой, но без заметки: {sr_id_q_no_n}, {st_q_no_n}, {wt_q_no_n}')
