@@ -9,7 +9,7 @@ from my_logger_config import setup_logging
 setup_logging()
 
 # Получение экземпляра логгера
-logger = logging.getLogger('my_app')
+logger = logging.getLogger(f'my_app.{__name__}')
 
 
 class DatabaseManager:
@@ -55,6 +55,7 @@ class DatabaseManager:
                 # Создает таблицу notes
                 cursor.execute(sql_notes)
             # Изменения в БД сохранятся автоматически с помощью with
+            logger.info(f'Успешное подключение к базе данных: {self.db_name}.')
             logger.info(f'Таблицы успешно созданы или уже существуют.')
         except sqlite3.Error as e:
             logger.error(f'Ошибка при создании таблиц: {e}', exc_info=True)
@@ -67,23 +68,25 @@ class DatabaseManager:
         """
         try:
             with sqlite3.connect(self.db_name) as conn:
+                logger.info(f'Успешное подключение к базе данных: {self.db_name}.')
                 cursor = conn.cursor()
                 cursor.execute("INSERT OR IGNORE INTO users (id, name) VALUES (?, ?)", (user_id, user_name))
-            logger.info(f'Пользователь {user_name} ({user_id}) добавлен или уже существует в БД.')
+            logger.info(f'Пользователь {user_name} ({user_id}) добавлен или уже существует в БД {self.db_name}.')
         except sqlite3.Error as e:
-            logger.error(f'Ошибка при добавлении пользователя в БД: {e}', exc_info=True)
+            logger.error(f'Ошибка при добавлении пользователя в БД {self.db_name}: {e}', exc_info=True)
 
     def start_sleep_session(self, user_id: int, sleep_time: datetime) -> int | None:
         """
-        Начинает новую сессию сна для пользователя. Использует собственное соединение.
+        Начинает новую сессию сна для указанного пользователя. Использует собственное соединение.
         :param user_id: int: ID пользователя в телеграмме.
         :param sleep_time: datetime: Время начала сна
         :return: int: Возвращает ID новой записи сна
         """
         try:
             with sqlite3.connect(self.db_name) as conn:
+                logger.info(f'Успешное подключение к базе данных: {self.db_name}.')
                 cursor = conn.cursor()
-                # Добавляем время начала сна(преобразованное для SQLite) для указанного пользователя в таблицу с сессиями сна
+                # Добавляем время начала сна(преобразованное для SQLite) в таблицу с сессиями сна
                 cursor.execute("INSERT INTO sleep_records (user_id, sleep_time) VALUES (?, ?)",
                                (user_id, sleep_time.isoformat()))
                 logger.info(f'Начата новая сессия сна с ID {cursor.lastrowid}.')
@@ -101,6 +104,7 @@ class DatabaseManager:
         """
         try:
             with sqlite3.connect(self.db_name) as conn:
+                logger.info(f'Успешное подключение к базе данных: {self.db_name}.')
                 cursor = conn.cursor()
                 # Добавляем время пробуждение преобразованное для SQLite
                 cursor.execute("UPDATE sleep_records SET wake_time = ? WHERE id = ?",
@@ -118,10 +122,11 @@ class DatabaseManager:
         """
         try:
             with sqlite3.connect(self.db_name) as conn:
+                logger.info(f'Успешное подключение к базе данных: {self.db_name}.')
                 cursor = conn.cursor()
                 cursor.execute("UPDATE sleep_records SET sleep_quality = ? WHERE id = ?",
                                (quality, sleep_record_id))
-            logger.info(f'Оценка качества сна для сессии {sleep_record_id} обновлена на {quality}')
+            logger.info(f'Оценка качества сна для сессии {sleep_record_id} обновлена на {quality}.')
         except sqlite3.Error as e:
             logger.error(f'Ошибка при обновлении оценки качества сна: {e}', exc_info=True)
 
@@ -135,10 +140,11 @@ class DatabaseManager:
         """
         try:
             with sqlite3.connect(self.db_name) as conn:
+                logger.info(f'Успешное подключение к базе данных: {self.db_name}.')
                 cursor = conn.cursor()
                 cursor.execute("INSERT OR REPLACE INTO notes (sleep_record_id, notes_text) VALUES (?, ?)",
                                (sleep_record_id, notes_text))
-            logger.info(f'Заметка к сессии сна {sleep_record_id} добавлена/обновлена')
+            logger.info(f'Заметка к сессии сна {sleep_record_id} добавлена/обновлена.')
         except sqlite3.Error as e:
             logger.error(f'Ошибка при добавлении заметки к сессии сна: {e}', exc_info=True)
 
@@ -159,13 +165,15 @@ class DatabaseManager:
             DESC LIMIT 1
             ;'''
             with sqlite3.connect(self.db_name) as conn:
+                logger.info(f'Успешное подключение к базе данных: {self.db_name}.')
                 cursor = conn.cursor()
                 cursor.execute(sql_select, (user_id,))
                 result = cursor.fetchone()
             if result:
-                logger.info(f'Найдена незавершенная сессия сна для {user_id}: {result}')
-                # sleep_record_id, sleep_time(преобразованное в формат для Python)
-                return result[0], datetime.fromisoformat(result[1])
+                sleep_record_id, sleep_time = result
+                logger.info(f'Найдена незавершенная сессия сна для {user_id}: {result}.')
+                # sleep_time(преобразован в формат для Python)
+                return sleep_record_id, datetime.fromisoformat(sleep_time)
             return None, None
         except sqlite3.Error as e:
             logger.error(f'Ошибка при получении последней незавершенной сессии сна: {e}', exc_info=True)
@@ -175,8 +183,8 @@ class DatabaseManager:
             self, user_id: int, date: datetime.date = None
     ) -> tuple[int, datetime, datetime] | tuple[None, None, None]:
         """
-        Ищет последнюю завершенную сессию без оценки качества сна. Использует собственное соединение.
-        Если date задано, ищет среди сессий завершенных в эту дату.
+        Ищет последнюю завершенную сессию без оценки качества сна для данного пользователя.
+        Если date задано, ищет среди сессий завершенных в эту дату. Использует собственное соединение.
         :param user_id: int: ID пользователя в телеграмме.
         :param date: datetime.date | None: Дата для поиска завершенной сессии сна в эту дату.
         :return: tuple[int, datetime, datetime] | tuple[None, None, None]:
@@ -197,13 +205,15 @@ class DatabaseManager:
             # добавляем в запрос сортировку полученных данных и лимит на 1 запись
             query += " ORDER BY wake_time DESC LIMIT 1"
             with sqlite3.connect(self.db_name) as conn:
+                logger.info(f'Успешное подключение к базе данных: {self.db_name}.')
                 cursor = conn.cursor()
                 cursor.execute(query, params)
                 result = cursor.fetchone()
             if result:
+                sleep_record_id, sleep_time, wake_time = result
                 logger.info(f'Найдена завершенная сессия без оценки качества сна для {user_id}: {result}.')
-                # sleep_record_id, sleep_time, wake_time (преобразованные в формат для Python)
-                return result[0], datetime.fromisoformat(result[1]), datetime.fromisoformat(result[2])
+                # sleep_time, wake_time (преобразованные в формат для Python)
+                return sleep_record_id, datetime.fromisoformat(sleep_time), datetime.fromisoformat(wake_time)
             return None, None, None
         except sqlite3.Error as e:
             logger.error(f'Ошибка при получении завершенной сессии без оценки качества сна: {e}', exc_info=True)
@@ -214,7 +224,7 @@ class DatabaseManager:
     ) -> tuple[int, datetime, datetime] | None:
         """
         Ищет последнюю завершенную сессию с оценкой качества сна для данного пользователя.
-        Если date задано, ищет среди сессий завершенных в эту дату.
+        Если date задано, ищет среди сессий завершенных в эту дату. Использует собственное соединение.
         :param user_id: int: ID пользователя в телеграмме.
         :param date: datetime.date | None: Дата для поиска завершенной сессии сна в эту дату.
         :return: tuple[int, datetime, datetime] | None: Возвращает ID сессии, время начала сна и время пробуждения, если найдено, иначе None.
@@ -234,6 +244,7 @@ class DatabaseManager:
             # добавляем в запрос сортировку полученных данных и лимит на 1 запись
             query += " ORDER BY wake_time DESC LIMIT 1"
             with sqlite3.connect(self.db_name) as conn:
+                logger.info(f'Успешное подключение к базе данных: {self.db_name}.')
                 cursor = conn.cursor()
                 cursor.execute(query, params)
                 result = cursor.fetchone()
@@ -255,6 +266,7 @@ class DatabaseManager:
         """
         try:
             with sqlite3.connect(self.db_name) as conn:
+                logger.info(f'Успешное подключение к базе данных: {self.db_name}.')
                 cursor = conn.cursor()
                 cursor.execute("SELECT notes_text FROM notes WHERE sleep_record_id = ?", (sleep_record_id,))
                 result = cursor.fetchone()
@@ -275,6 +287,7 @@ class DatabaseManager:
         """
         try:
             with sqlite3.connect(self.db_name) as conn:
+                logger.info(f'Успешное подключение к базе данных: {self.db_name}.')
                 cursor = conn.cursor()
                 cursor.execute(
                     """SELECT
@@ -289,7 +302,7 @@ class DatabaseManager:
                 return 0, 0, 0
 
             average_sleep_duration_seconds = (total_sleep_duration_seconds / total_session) if total_session > 0 else 0
-            logger.info(f'Статистики сна для пользователя ({user_id}) получена.')
+            logger.info(f'Статистики сна для пользователя ({user_id}) рассчитана.')
             return total_session, total_sleep_duration_seconds, average_sleep_duration_seconds
         except sqlite3.Error as e:
             logger.error(f'Ошибка при получении статистики сна для пользователя: {e}', exc_info=True)
