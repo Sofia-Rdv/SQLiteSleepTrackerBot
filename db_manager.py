@@ -1,8 +1,6 @@
 import sqlite3
 import logging
 from datetime import datetime, timedelta
-# Импортируем threading для отладочных принтов, чтобы видеть какой поток работает
-import threading
 # Импортируем функцию настройки логирования из файла с конфигурацией
 from my_logger_config import setup_logging
 # Вызов функции настройки логирования (ОДИН РАЗ) при запуске программы
@@ -13,12 +11,31 @@ logger = logging.getLogger(f'my_app.{__name__}')
 
 
 class DatabaseManager:
+    """
+    Менеджер для взаимодействия с базой данных SQLite.
+
+    Этот класс представляет централизованный интерфейс для управления подключением к файловой базе данных SQLite,
+    выполнения SQL-запросов (INSERT, SELECT, UPDATE) и обработки транзакций.
+    Он инкапсулирует операции с БД и обеспечивает безопасное управление соединениями.
+
+    Использует стандартную библиотеку Python `sqlite3`.
+
+    Каждый метод этого класса устанавливает собственное соединение с базой данных,
+    используя контекстный менеджер (`with sqlite3.connect(...)`). Такой подход гарантирует, что соединение корректно
+    открывается и закрывается для каждой операции, что критически важно для многопоточных приложений
+    (например, Telegram-ботов) при работе с SQLite.
+    Это повышает надежность и предотвращает проблемы с блокировками или совместным использованием соединений
+    между различными потоками.
+
+    Attributes:
+        db_name (str): Путь к файлу базы данных SQLite (например, 'sleep_tracker.db').
+    """
     def __init__(self, db_name: str = 'sleep_tracker.db'):
         self.db_name: str = db_name
         self._create_tables()
 
     def _create_tables(self):
-        """Создает таблицы, если они не существуют. Использует собственное соединение для этой операции."""
+        """Создает таблицы, если они не существуют."""
         sql_users = '''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY UNIQUE,
@@ -55,20 +72,18 @@ class DatabaseManager:
                 # Создает таблицу notes
                 cursor.execute(sql_notes)
             # Изменения в БД сохранятся автоматически с помощью with
-            logger.info(f'Успешное подключение к базе данных: {self.db_name}.')
             logger.info(f'Таблицы успешно созданы или уже существуют.')
         except sqlite3.Error as e:
             logger.error(f'Ошибка при создании таблиц: {e}', exc_info=True)
 
     def add_user(self, user_id: int, user_name: str):
         """
-        Добавляет нового пользователя, если его нет в базе данных. Использует собственное соединение.
+        Добавляет нового пользователя, если его нет в базе данных.
         :param user_id: int: ID пользователя в телеграмме.
         :param user_name: str: Имя пользователя в телеграмме, если указано, иначе указывается "Пользователь".
         """
         try:
             with sqlite3.connect(self.db_name) as conn:
-                logger.info(f'Успешное подключение к базе данных: {self.db_name}.')
                 cursor = conn.cursor()
                 cursor.execute("INSERT OR IGNORE INTO users (id, name) VALUES (?, ?)", (user_id, user_name))
             logger.info(f'Пользователь {user_name} ({user_id}) добавлен или уже существует в БД {self.db_name}.')
@@ -77,14 +92,13 @@ class DatabaseManager:
 
     def start_sleep_session(self, user_id: int, sleep_time: datetime) -> int | None:
         """
-        Начинает новую сессию сна для указанного пользователя. Использует собственное соединение.
+        Начинает новую сессию сна для указанного пользователя.
         :param user_id: int: ID пользователя в телеграмме.
-        :param sleep_time: datetime: Время начала сна
-        :return: int: Возвращает ID новой записи сна
+        :param sleep_time: datetime: Время начала сна.
+        :return: int | None: ID новой записи сна, если операция успешна, иначе None.
         """
         try:
             with sqlite3.connect(self.db_name) as conn:
-                logger.info(f'Успешное подключение к базе данных: {self.db_name}.')
                 cursor = conn.cursor()
                 # Добавляем время начала сна(преобразованное для SQLite) в таблицу с сессиями сна
                 cursor.execute("INSERT INTO sleep_records (user_id, sleep_time) VALUES (?, ?)",
@@ -98,13 +112,12 @@ class DatabaseManager:
 
     def end_sleep_session(self, sleep_record_id: int, wake_time: datetime):
         """
-        Завершает сессию сна, обновляя время пробуждения. Использует собственное соединение.
-        :param sleep_record_id: int: ID сессии сна
-        :param wake_time: datetime: Время пробуждения
+        Завершает сессию сна, обновляя время пробуждения.
+        :param sleep_record_id: int: ID сессии сна.
+        :param wake_time: datetime: Время пробуждения.
         """
         try:
             with sqlite3.connect(self.db_name) as conn:
-                logger.info(f'Успешное подключение к базе данных: {self.db_name}.')
                 cursor = conn.cursor()
                 # Добавляем время пробуждение преобразованное для SQLite
                 cursor.execute("UPDATE sleep_records SET wake_time = ? WHERE id = ?",
@@ -115,14 +128,12 @@ class DatabaseManager:
 
     def update_sleep_quality(self, sleep_record_id: int, quality: int):
         """
-        Добавляет оценку качества сна для конкретной записи(сессии сна), обновляя поле sleep_quality.
-        Использует собственное соединение.
+        Добавляет оценку качества сна для конкретной сессии, обновляя поле sleep_quality.
         :param sleep_record_id: int: ID сессии сна.
         :param quality: int: Оценка качества сна.
         """
         try:
             with sqlite3.connect(self.db_name) as conn:
-                logger.info(f'Успешное подключение к базе данных: {self.db_name}.')
                 cursor = conn.cursor()
                 cursor.execute("UPDATE sleep_records SET sleep_quality = ? WHERE id = ?",
                                (quality, sleep_record_id))
@@ -132,15 +143,15 @@ class DatabaseManager:
 
     def add_note(self, sleep_record_id: int, notes_text: str):
         """
-        Добавляет заметку к записи сна. Использует собственное соединение.
-        Проверяет, существует ли уже заметка для указанной сессии сна. Если да, обновляет ее, иначе создает новую.
-        Это соответствует логике один к одному (одна запись о сне может иметь одну заметку).
+        Добавляет или обновляет заметку к сессии сна с оценкой качества.
+        Если заметка для указанной сессии сна уже существует, она будет обновлена,
+        в противном случае будет создана новая.
+        Это соответствует логике один-к-одному (одна запись о сне может иметь одну заметку).
         :param sleep_record_id: int: ID сессии сна.
         :param notes_text: str: Текст заметки.
         """
         try:
             with sqlite3.connect(self.db_name) as conn:
-                logger.info(f'Успешное подключение к базе данных: {self.db_name}.')
                 cursor = conn.cursor()
                 cursor.execute("INSERT OR REPLACE INTO notes (sleep_record_id, notes_text) VALUES (?, ?)",
                                (sleep_record_id, notes_text))
@@ -150,11 +161,10 @@ class DatabaseManager:
 
     def get_latest_unfinished_sleep_session(self, user_id: int) -> tuple[int, datetime] | tuple[None, None]:
         """
-        Находит последнюю незавершенную сессию сна и извлекает нужные данные
-        (ID и время начала последней незавершенной сессии сна). Использует собственное соединение.
+        Находит последнюю незавершенную сессию сна для пользователя.
         :param user_id: int: ID пользователя в телеграмме.
-        :return: int | datetime | None: ID и время начала последней незавершенной сессии сна пользователя,
-                                        None в случае ошибки или отсутствия незавершенной сессии сна.
+        :return: tuple[int, datetime] | tuple[None, None]: ID и время начала последней незавершенной сессии сна,
+                                                           если найдено, иначе (None, None).
         """
         try:
             sql_select = '''
@@ -165,7 +175,6 @@ class DatabaseManager:
             DESC LIMIT 1
             ;'''
             with sqlite3.connect(self.db_name) as conn:
-                logger.info(f'Успешное подключение к базе данных: {self.db_name}.')
                 cursor = conn.cursor()
                 cursor.execute(sql_select, (user_id,))
                 result = cursor.fetchone()
@@ -183,12 +192,12 @@ class DatabaseManager:
             self, user_id: int, date: datetime.date = None
     ) -> tuple[int, datetime, datetime] | tuple[None, None, None]:
         """
-        Ищет последнюю завершенную сессию без оценки качества сна для данного пользователя.
-        Если date задано, ищет среди сессий завершенных в эту дату. Использует собственное соединение.
+        Ищет последнюю завершенную сессию сна без оценки качества.
+        Если дата указана, поиск ограничивается сессиями завершенными в эту дату.
         :param user_id: int: ID пользователя в телеграмме.
-        :param date: datetime.date | None: Дата для поиска завершенной сессии сна в эту дату.
+        :param date: datetime.date | None: Дата для фильтрации сессий сна.
         :return: tuple[int, datetime, datetime] | tuple[None, None, None]:
-                                Возвращает ID сессии, время начала сна и время пробуждения, если найдено, иначе None.
+                                ID сессии, время начала сна и время пробуждения, если найдено, иначе (None, None, None).
         """
         try:
             query = """
@@ -205,7 +214,6 @@ class DatabaseManager:
             # добавляем в запрос сортировку полученных данных и лимит на 1 запись
             query += " ORDER BY wake_time DESC LIMIT 1"
             with sqlite3.connect(self.db_name) as conn:
-                logger.info(f'Успешное подключение к базе данных: {self.db_name}.')
                 cursor = conn.cursor()
                 cursor.execute(query, params)
                 result = cursor.fetchone()
@@ -223,11 +231,11 @@ class DatabaseManager:
             self, user_id: int, date: datetime.date = None
     ) -> tuple[int, datetime, datetime] | None:
         """
-        Ищет последнюю завершенную сессию с оценкой качества сна для данного пользователя.
-        Если date задано, ищет среди сессий завершенных в эту дату. Использует собственное соединение.
+        Ищет последнюю завершенную сессию сна с оценкой качества.
+        Если дата указана, поиск ограничивается сессиями завершенными в эту дату.
         :param user_id: int: ID пользователя в телеграмме.
-        :param date: datetime.date | None: Дата для поиска завершенной сессии сна в эту дату.
-        :return: tuple[int, datetime, datetime] | None: Возвращает ID сессии, время начала сна и время пробуждения, если найдено, иначе None.
+        :param date: datetime.date | None: Дата для фильтрации сессий сна.
+        :return: tuple[int, datetime, datetime] | None: ID сессии, время начала сна и время пробуждения, если найдено, иначе None.
         """
         try:
             query = """
@@ -244,7 +252,6 @@ class DatabaseManager:
             # добавляем в запрос сортировку полученных данных и лимит на 1 запись
             query += " ORDER BY wake_time DESC LIMIT 1"
             with sqlite3.connect(self.db_name) as conn:
-                logger.info(f'Успешное подключение к базе данных: {self.db_name}.')
                 cursor = conn.cursor()
                 cursor.execute(query, params)
                 result = cursor.fetchone()
@@ -266,7 +273,6 @@ class DatabaseManager:
         """
         try:
             with sqlite3.connect(self.db_name) as conn:
-                logger.info(f'Успешное подключение к базе данных: {self.db_name}.')
                 cursor = conn.cursor()
                 cursor.execute("SELECT notes_text FROM notes WHERE sleep_record_id = ?", (sleep_record_id,))
                 result = cursor.fetchone()
@@ -280,14 +286,13 @@ class DatabaseManager:
 
     def get_sleep_statistic(self, user_id: int) -> tuple[int, int, int]:
         """
-        Рассчитывает статистику сна для пользователя. Использует собственное соединение.
+        Рассчитывает статистику сна для пользователя.
         :param user_id: int: ID пользователя в телеграмме.
-        :return: tuple[int, int, int] : Возвращает общее количество сессий сна, общее и среднее количество сна в секундах,
-                       0 в случае ошибки или отсутствия завершенных сессий сна.
+        :return: tuple[int, int, int] : Возвращает кортеж из: общего количества сессий сна,
+                                    общего и среднего количества сна в секундах. Если завершенных сессий нет (0, 0, 0).
         """
         try:
             with sqlite3.connect(self.db_name) as conn:
-                logger.info(f'Успешное подключение к базе данных: {self.db_name}.')
                 cursor = conn.cursor()
                 cursor.execute(
                     """SELECT
