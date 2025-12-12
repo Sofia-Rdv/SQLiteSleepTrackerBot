@@ -4,7 +4,7 @@ import logging
 from telebot import types
 from datetime import datetime
 # Импортируем DatabaseManager, в нем вся логика работы с БД
-from db_manager import DatabaseManager
+from database_manager import DatabaseManager
 # Импортируем функцию настройки логирования из файла с конфигурацией
 from my_logger_config import setup_logging
 # Вызов функции настройки логирования (ОДИН РАЗ) при запуске программы
