@@ -2,90 +2,56 @@ import pytest
 import sqlite3
 import logging
 from datetime import datetime, date
+from typing import Any
 from pytest import LogCaptureFixture
 from unittest import mock
+from pytest_mock import MockFixture
+
 # Импортируем DatabaseManager
 from database_manager import DatabaseManager
 
 
 @pytest.fixture
-def db_manager() -> DatabaseManager:
+def db_manager(tmp_path) -> DatabaseManager:
     """
-    Предоставляет полностью изолированный экземпляр DatabaseManager для каждого теста.
+    Предоставляет изолированный экземпляр DatabaseManager с временной базой данных на диске.
 
-    Эта фикстура создает и управляет временной, In-Memory SQLite базой данных для каждого запускаемого теста,
-    обеспечивая их полную изоляцию и чистое состояние.
-    Ключевой особенностью является мокирование функции 'sqlite3.connect',
-    чтобы все обращения 'DatabaseManager' к базе данных в памяти ':memory:' направлялись к одному и тому же,
-    специально подготовленному тестовому соединению.
+    Эта фикстура создает уникальный файл базы данных SQLite для каждого теста в специальной
+    временной директории (tmp_path). Это решает проблему удаления данных при закрытии соединения,
+    которая возникает с базой данных ':memory:'.
 
-    Процесс выполнения фикстуры:
-    1. Инициализация соединения: Создается одно постоянное соединение 'sqlite3.Connection'
-       к базе данных в оперативной памяти (':memory:'), которое будет использоваться на протяжении всего теста.
-    2. Создание схемы: В этом соединении создаются все необходимые таблицы ('users', 'sleep_records', 'notes'),
-       гарантируя, что каждый тест начинается с пустой и корректно структурированной схемы базы данных.
-    3. Мокирование 'sqlite3.connect': Применяется 'mock.patch' к 'sqlite3.connect' в модуле 'database_manager'.
-       Настраивается 'side_effect', который перехватывает вызовы 'sqlite3.connect(':memory:')'
-       и возвращает ранее созданное In-Memory соединение.
-       Это гарантирует, что 'DatabaseManager' работает именно с этой временной базой данных.
-    4. Создание DatabaseManager: Инстанцируется 'DatabaseManager', используя мокированное соединение.
-    5. Выполнение теста: Экземпляр 'DatabaseManager' передается в тестовую функцию.
-    6. Очистка: После завершения теста (или при возникновении ошибки), In-Memory соединение с базой данных закрывается,
-       уничтожая все временные данные и освобождая ресурсы.
+    Логика работы:
+    1. Создание пути: Используется встроенная фикстура pytest 'tmp_path' для создания уникального пути к файлу
+       базы данных на время выполнения теста.
+    2. Инициализация: Создается экземпляр DatabaseManager, работающий с этим файлом.
+    3. Подготовка схемы: Вызывается метод '_create_tables()', чтобы структура БД (таблицы users, sleep_records, notes)
+       была готова к работе.
+    4. Изоляция: По завершении теста pytest автоматически удалит временную директорию вместе с файлом базы данных.
 
-    Преимущества данной настройки:
-    - Изоляция тестов: Каждый тест работает с совершенно чистой и независимой базой данных,
-      исключая влияние одного теста на другой.
-    - Высокая производительность: Операции с базой данных выполняются исключительно в оперативной памяти,
-      значительно ускоряя выполнение тестового набора.
-    - Надежность: Устраняются проблемы, связанные с доступом к файловой системе,
-      разрешениями или состоянием реальных файлов базы данных.
+    Преимущества:
+    - Позволяет тестировать методы, которые закрывают соединение (блок finally: conn.close()),
+      не теряя данные между вызовами.
+    - Гарантирует, что тесты не влияют друг на друга.
+    - Не требует мокирования 'sqlite3.connect' для базовых операций.
 
-    :return: DatabaseManager: Готовый к использованию экземпляр DatabaseManager,
-                              подключенный к временной In-Memory базе данных.
+    :param tmp_path: Встроенная фикстура pytest для создания временных путей.
+    :return: DatabaseManager: Экземпляр менеджера, подключенный к временному файлу базы данных.
     """
+    # Создаем временную папку с тестовой БД
+    db_file = str(tmp_path/'test_db_manager.db')
+    # Создаем менеджера
+    manager = DatabaseManager(db_name=db_file)
+    # Создаем нужные таблицы с помощью метода класса, чтобы тесты могли работать
+    manager._create_tables()
 
-    in_memory_conn = sqlite3.connect(':memory:')
-
-    with in_memory_conn as conn_setup:
-        cursor_setup = conn_setup.cursor()
-        cursor_setup.execute("""CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY UNIQUE, name TEXT NOT NULL)""")
-        cursor_setup.execute("""
-        CREATE TABLE IF NOT EXISTS sleep_records (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            sleep_time DATETIME,
-            wake_time DATETIME,
-            sleep_quality INTEGER,
-            FOREIGN KEY (user_id) REFERENCES users(id)
-        )""")
-        cursor_setup.execute("""
-        CREATE TABLE IF NOT EXISTS notes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            notes_text TEXT,
-            sleep_record_id INTEGER NOT NULL UNIQUE,
-            FOREIGN KEY (sleep_record_id) REFERENCES sleep_records(id)
-        )""")
-
-    with mock.patch('database_manager.sqlite3.connect') as mock_connect:
-        def side_effect_func(db_name_arg):
-            if db_name_arg == ':memory:':
-                return in_memory_conn
-            else:
-                return sqlite3.connect(db_name_arg)
-
-        mock_connect.side_effect = side_effect_func
-
-        manager = DatabaseManager(db_name=':memory:')
-        yield manager
-
-    in_memory_conn.close()
+    return manager
 
 
 @pytest.fixture(autouse=True)
 def configure_caplog_level(caplog: pytest.LogCaptureFixture):
     """
     Автоматически настраивает уровень логирования для тестов, гарантируя захват логов из 'my_app.database_manager'.
+
     В связи с ранней загрузкой конфигурации логирования с 'propagate: false' из YAML-файла,
     необходим 'агрессивный сброс' всех логгеров, чтобы caplog мог корректно работать в тестовых функциях.
     :param caplog: pytest.LogCaptureFixture: Фикстура pytest для перехвата сообщений логгера.
@@ -139,6 +105,7 @@ def configure_caplog_level(caplog: pytest.LogCaptureFixture):
 def test_add_user_successfully(db_manager: DatabaseManager, caplog: pytest.LogCaptureFixture):
     """
     Тестирует, что метод add_user успешно добавляет пользователя с указанными ID и именем.
+
     Ожидается, что add_user запишет сообщение об успешном выполнении метода в лог.
     :param db_manager: DatabaseManager: Менеджер базы данных, предоставляемый фикстурой.
     :param caplog: pytest.LogCaptureFixture: Фикстура pytest для перехвата сообщений логгера.
@@ -152,6 +119,7 @@ def test_add_user_successfully(db_manager: DatabaseManager, caplog: pytest.LogCa
         cursor = conn.cursor()
         cursor.execute("SELECT id, name FROM users WHERE id = ?", (user_id,))
         user = cursor.fetchone()
+    conn.close()
 
     # Проверка корректности возвращаемых значений
     assert user == (user_id, user_name)
@@ -163,6 +131,7 @@ def test_add_user_successfully(db_manager: DatabaseManager, caplog: pytest.LogCa
 def test_start_sleep_session_successfully(db_manager: DatabaseManager, caplog: pytest.LogCaptureFixture):
     """
     Тестирует, что метод start_sleep_session успешно начинает новую сессию сна для указанного пользователя.
+
     Ожидается, что start_sleep_session вернет ID новой сессии сна и запишет сообщение об успешном выполнении метода в лог.
     :param db_manager: DatabaseManager: Менеджер базы данных, предоставляемый фикстурой.
     :param caplog: pytest.LogCaptureFixture: Фикстура pytest для перехвата сообщений логгера.
@@ -189,6 +158,7 @@ def test_start_sleep_session_successfully(db_manager: DatabaseManager, caplog: p
         cursor.execute("SELECT id, user_id, sleep_time, wake_time, sleep_quality FROM sleep_records WHERE id = ?",
                        (session_id,))
         result = cursor.fetchone()
+    conn.close()
     retrieved_session_id, retrieved_user_id, retrieved_sleep_time, retrieved_wake_time, retrieved_sleep_quality = result
 
     # Проверка корректности возвращаемых значений
@@ -202,6 +172,7 @@ def test_start_sleep_session_successfully(db_manager: DatabaseManager, caplog: p
 def test_end_sleep_session_successfully(db_manager: DatabaseManager, caplog: pytest.LogCaptureFixture):
     """
     Тестирует, что метод end_sleep_session успешно завершает указанную сессию сна.
+
     Ожидается, что end_sleep_session запишет сообщение об успешном выполнении метода в лог.
     :param db_manager: DatabaseManager: Менеджер базы данных, предоставляемый фикстурой.
     :param caplog: pytest.LogCaptureFixture: Фикстура pytest для перехвата сообщений логгера.
@@ -226,6 +197,7 @@ def test_end_sleep_session_successfully(db_manager: DatabaseManager, caplog: pyt
         cursor.execute("SELECT id, user_id, sleep_time, wake_time, sleep_quality FROM sleep_records WHERE id = ?",
                        (session_id,))
         result = cursor.fetchone()
+    conn.close()
     retrieved_session_id, retrieved_user_id, retrieved_sleep_time, retrieved_wake_time, retrieved_sleep_quality = result
 
     # Проверка корректности возвращаемых значений
@@ -238,6 +210,7 @@ def test_end_sleep_session_successfully(db_manager: DatabaseManager, caplog: pyt
 def test_update_sleep_quality_successfully(db_manager: DatabaseManager, caplog: pytest.LogCaptureFixture):
     """
     Тестирует, что метод update_sleep_quality успешно добавляет оценку качества для указанной сессии сна.
+
     Ожидается, что update_sleep_quality запишет сообщение об успешном выполнении метода в лог.
     :param db_manager: DatabaseManager: Менеджер базы данных, предоставляемый фикстурой.
     :param caplog: pytest.LogCaptureFixture: Фикстура pytest для перехвата сообщений логгера.
@@ -265,6 +238,7 @@ def test_update_sleep_quality_successfully(db_manager: DatabaseManager, caplog: 
         cursor.execute("SELECT id, user_id, sleep_time, wake_time, sleep_quality FROM sleep_records WHERE id = ?",
                        (session_id,))
         result = cursor.fetchone()
+    conn.close()
     retrieved_session_id, retrieved_user_id, retrieved_sleep_time, retrieved_wake_time, retrieved_sleep_quality = result
 
     # Проверка корректности возвращаемых значений
@@ -277,6 +251,7 @@ def test_update_sleep_quality_successfully(db_manager: DatabaseManager, caplog: 
 def test_add_note_successfully(db_manager: DatabaseManager, caplog: pytest.LogCaptureFixture):
     """
     Тестирует, что метод add_note успешно добавляет заметку к оценке качества для указанной сессии сна.
+
     Ожидается, что add_note запишет сообщение об успешном выполнении метода в лог.
     :param db_manager: DatabaseManager: Менеджер базы данных, предоставляемый фикстурой.
     :param caplog: pytest.LogCaptureFixture: Фикстура pytest для перехвата сообщений логгера.
@@ -306,6 +281,7 @@ def test_add_note_successfully(db_manager: DatabaseManager, caplog: pytest.LogCa
         cursor.execute("SELECT notes_text, sleep_record_id FROM notes WHERE id = ?",
                        (session_id,))
         result = cursor.fetchone()
+    conn.close()
     retrieved_note_text, retrieved_session_id = result
 
     # Проверка корректности возвращаемых значений
@@ -317,6 +293,7 @@ def test_get_latest_unfinished_sleep_session_successfully(db_manager: DatabaseMa
     """
     Тестирует, что метод get_latest_unfinished_sleep_session
     успешно находит последнюю незавершенную сессию сна для пользователя.
+
     Ожидается, что get_latest_unfinished_sleep_session вернет ID и время начала последней незавершенной сессии сна,
     и запишет сообщение об успешном выполнении метода в лог.
     :param db_manager: DatabaseManager: Менеджер базы данных, предоставляемый фикстурой.
@@ -349,6 +326,7 @@ def test_get_latest_finished_sleep_session_without_quality_successfully(
     """
     Тестирует, что метод get_latest_finished_sleep_session_without_quality
     успешно находит последнюю завершенную сессию сна без оценки качества.
+
     Ожидается, что метод вернет ID, время начала и время пробуждения последней завершенной сессии сна,
     и запишет сообщение об успешном выполнении метода в лог.
     :param db_manager: DatabaseManager: Менеджер базы данных, предоставляемый фикстурой.
@@ -386,6 +364,7 @@ def test_get_latest_finished_sleep_session_with_quality_successfully(
     """
     Тестирует, что метод get_latest_finished_sleep_session_with_quality
     успешно находит последнюю завершенную сессию сна с оценкой качества.
+
     Ожидается, что метод вернет ID, время начала и время пробуждения последней завершенной сессии сна,
     и запишет сообщение об успешном выполнении метода в лог.
     :param db_manager: DatabaseManager: Менеджер базы данных, предоставляемый фикстурой.
@@ -423,6 +402,7 @@ def test_get_latest_finished_sleep_session_with_quality_successfully(
 def test_get_note_by_sleep_record_id_successfully(db_manager: DatabaseManager, caplog: pytest.LogCaptureFixture):
     """
     Тестирует, что метод get_note_by_sleep_record_id успешно находит текст заметки для указанной сессии сна.
+
     Ожидается, что метод вернет текст заметки для указанной сессии сна
     и запишет сообщение об успешном выполнении метода в лог.
     :param db_manager: DatabaseManager: Менеджер базы данных, предоставляемый фикстурой.
@@ -457,6 +437,7 @@ def test_get_note_by_sleep_record_id_successfully(db_manager: DatabaseManager, c
 def test_get_sleep_statistic_successfully(db_manager: DatabaseManager, caplog: pytest.LogCaptureFixture):
     """
     Тестирует, что метод get_sleep_statistic успешно рассчитывает статистику сна для пользователя.
+
     Ожидается, что метод вернет кортеж из общего количества сессий сна, общего и среднего количества сна в секундах,
     и запишет сообщение об успешном выполнении метода в лог.
     :param db_manager: DatabaseManager: Менеджер базы данных, предоставляемый фикстурой.
@@ -481,6 +462,7 @@ def test_get_sleep_statistic_successfully(db_manager: DatabaseManager, caplog: p
                    WHERE user_id = ? AND wake_time IS NOT NULL
                    """, (user_id,))
         retrieved_total_s, retrieved_total_d = cursor.fetchone()
+    conn.close()
     retrieved_avg_d = (retrieved_total_d / retrieved_total_s) if retrieved_total_s > 0 else 0.0
 
     total_s, total_d, avg_d = db_manager.get_sleep_statistic(user_id)
@@ -504,6 +486,7 @@ def test_get_sleep_statistic_successfully(db_manager: DatabaseManager, caplog: p
 def test_add_user_error_handling(db_manager: DatabaseManager, caplog: pytest.LogCaptureFixture):
     """
     Тестирует поведение функции add_user при невозможности установить соединение с базой данных.
+
     Имитирует сбой соединения с базой данных и изменяет уровень логирования на 'ERROR' для этого теста.
     Ожидается, что add_user корректно обработает эту ситуацию и запишет сообщение об исключении в лог.
     :param db_manager: DatabaseManager: Менеджер базы данных, предоставляемый фикстурой.
@@ -523,6 +506,7 @@ def test_add_user_error_handling(db_manager: DatabaseManager, caplog: pytest.Log
 def test_start_sleep_session_error_handling(db_manager: DatabaseManager, caplog: pytest.LogCaptureFixture):
     """
     Тестирует поведение функции start_sleep_session при невозможности установить соединение с базой данных.
+
     Имитирует сбой соединения с базой данных и изменяет уровень логирования на 'ERROR' для этого теста.
     Ожидается, что start_sleep_session корректно обработает эту ситуацию, вернет None
     и запишет сообщение об исключении в лог.
@@ -545,6 +529,7 @@ def test_start_sleep_session_error_handling(db_manager: DatabaseManager, caplog:
 def test_end_sleep_session_error_handling(db_manager: DatabaseManager, caplog: pytest.LogCaptureFixture):
     """
     Тестирует поведение функции end_sleep_session при невозможности установить соединение с базой данных.
+
     Имитирует сбой соединения с базой данных и изменяет уровень логирования на 'ERROR' для этого теста.
     Ожидается, что end_sleep_session корректно обработает эту ситуацию и запишет сообщение об исключении в лог.
     :param db_manager: DatabaseManager: Менеджер базы данных, предоставляемый фикстурой.
@@ -565,6 +550,7 @@ def test_end_sleep_session_error_handling(db_manager: DatabaseManager, caplog: p
 def test_update_sleep_quality_error_handling(db_manager: DatabaseManager, caplog: pytest.LogCaptureFixture):
     """
     Тестирует поведение функции update_sleep_quality при невозможности установить соединение с базой данных.
+
     Имитирует сбой соединения с базой данных и изменяет уровень логирования на 'ERROR' для этого теста.
     Ожидается, что update_sleep_quality корректно обработает эту ситуацию и запишет сообщение об исключении в лог.
     :param db_manager: DatabaseManager: Менеджер базы данных, предоставляемый фикстурой.
@@ -585,6 +571,7 @@ def test_update_sleep_quality_error_handling(db_manager: DatabaseManager, caplog
 def test_add_note_error_handling(db_manager: DatabaseManager, caplog: pytest.LogCaptureFixture):
     """
     Тестирует поведение функции add_note при невозможности установить соединение с базой данных.
+
     Имитирует сбой соединения с базой данных и изменяет уровень логирования на 'ERROR' для этого теста.
     Ожидается, что add_note корректно обработает эту ситуацию и запишет сообщение об исключении в лог.
     :param db_manager: DatabaseManager: Менеджер базы данных, предоставляемый фикстурой.
@@ -606,6 +593,7 @@ def test_get_latest_unfinished_sleep_session_error_handling(
         db_manager: DatabaseManager, caplog: pytest.LogCaptureFixture):
     """
     Тестирует поведение функции get_latest_unfinished_sleep_session при невозможности установить соединение с базой данных.
+
     Имитирует сбой соединения с базой данных и изменяет уровень логирования на 'ERROR' для этого теста.
     Ожидается, что get_latest_unfinished_sleep_session корректно обработает эту ситуацию, вернет кортеж (None, None)
     и запишет сообщение об исключении в лог.
@@ -631,6 +619,7 @@ def test_get_latest_finished_sleep_session_without_quality_error_handling(
     """
     Тестирует поведение функции get_latest_finished_sleep_session_without_quality
     при невозможности установить соединение с базой данных.
+
     Имитирует сбой соединения с базой данных и изменяет уровень логирования на 'ERROR' для этого теста.
     Ожидается, что get_latest_finished_sleep_session_without_quality корректно обработает эту ситуацию,
     вернет кортеж (None, None, None) и запишет сообщение об исключении в лог.
@@ -656,6 +645,7 @@ def test_get_latest_finished_sleep_session_with_quality_error_handling(
     """
     Тестирует поведение функции get_latest_finished_sleep_session_with_quality
     при невозможности установить соединение с базой данных.
+
     Имитирует сбой соединения с базой данных и изменяет уровень логирования на 'ERROR' для этого теста.
     Ожидается, что get_latest_finished_sleep_session_with_quality корректно обработает эту ситуацию,
     вернет None и запишет сообщение об исключении в лог.
@@ -679,6 +669,7 @@ def test_get_latest_finished_sleep_session_with_quality_error_handling(
 def test_get_note_by_sleep_record_id_error_handling(db_manager: DatabaseManager, caplog: pytest.LogCaptureFixture):
     """
     Тестирует поведение функции get_note_by_sleep_record_id при невозможности установить соединение с базой данных.
+
     Имитирует сбой соединения с базой данных и изменяет уровень логирования на 'ERROR' для этого теста.
     Ожидается, что get_note_by_sleep_record_id корректно обработает эту ситуацию,
     вернет None и запишет сообщение об исключении в лог.
@@ -701,6 +692,7 @@ def test_get_note_by_sleep_record_id_error_handling(db_manager: DatabaseManager,
 def test_get_sleep_statistic_error_handling(db_manager: DatabaseManager, caplog: pytest.LogCaptureFixture):
     """
     Тестирует поведение функции get_sleep_statistic при невозможности установить соединение с базой данных.
+
     Имитирует сбой соединения с базой данных и изменяет уровень логирования на 'ERROR' для этого теста.
     Ожидается, что get_sleep_statistic корректно обработает эту ситуацию, вернет нулевые значения для статистики
     и запишет сообщение об исключении в лог.
@@ -719,4 +711,63 @@ def test_get_sleep_statistic_error_handling(db_manager: DatabaseManager, caplog:
         assert caplog.records[0].exc_info is not None
 
         assert (total_s, total_d, avg_d) == (0, 0, 0.0)
+
+
+# -- Тесты на атомарность (откат транзакции) --
+@pytest.mark.parametrize(
+    'method_name, args',
+    [
+        ('add_user', (1, 'Sonya')),
+        ('start_sleep_session', (1, datetime.now())),
+        ('end_sleep_session', (1, datetime.now())),
+        ('update_sleep_quality', (1, 5)),
+        ('add_note', (1, 'Note text'))
+    ])
+def test_all_methods_for_rollback(
+        db_manager: DatabaseManager, mocker: MockFixture, method_name: str, args: tuple[Any, ...]):
+    """
+    Проверяет откат транзакции (rollback) во всех методах записи при ошибке в БД.
+
+    Имитирует сбой на этапе выполнения SQL-запроса (execute) и проверяет, что каждый метод
+    (add_user, start_sleep_session, end_sleep_session, update_sleep_quality, add_note) вызывает rollback() и commit().
+    :param db_manager: DatabaseManager: Менеджер базы данных, предоставляемый фикстурой.
+    :param mocker: MockFixture: Фикстура pytest_mock для подмены объектов.
+    :param method_name: str: Имя тестируемого метода.
+    :param args: tuple[Any, ...]: Аргументы, передаваемые в метод.
+    """
+    # 1. Подготовка моков
+    # патчим connect в модуле database_manager
+    mock_connect = mocker.patch('database_manager.sqlite3.connect')
+    # Создаем "умную пустышку" представляющую соединение
+    mock_conn = mocker.MagicMock()
+    # Подмена результата connect
+    mock_connect.return_value = mock_conn
+
+    # 2. Эмулируем логику context manager (with conn:)
+    # Если блок завершается с ошибкой (exc_type не None), должен вызваться rollback
+    def mock_exit(exc_type, exc_val, exc_tb):
+        if exc_type is not None:
+            mock_conn.rollback()
+
+    # При входе в блок (with conn:) получаем тот же подмененный объект соединения
+    mock_conn.__enter__.return_value = mock_conn
+    # Привязываем логику отката к выходу из блока (with conn:).
+    mock_conn.__exit__.side_effect = mock_exit
+
+    # 3. Настраиваем падение execute
+    # Создаем "умную пустышку" представляющую курсор
+    mock_cursor = mocker.MagicMock()
+    # Устанавливаем при вызове метода execute() выброс исключения
+    mock_cursor.execute.side_effect = sqlite3.Error('Database error during execute')
+    # Привязываем к вызову метода cursor() наш 'сломанный' курсор
+    mock_conn.cursor.return_value = mock_cursor
+
+    # 4. Вызов метода динамически
+    method_to_call = getattr(db_manager, method_name)
+    method_to_call(*args)
+
+    # 5. Проверка
+    assert mock_conn.rollback.called, f'Метод {method_name} не сделал rollback при ошибке!'
+
+    assert not mock_conn.commit.called, f'Метод {method_name} ошибочно сделал commit!'
 
