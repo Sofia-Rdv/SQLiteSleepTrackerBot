@@ -168,22 +168,25 @@ class DatabaseManager:
             if conn:
                 conn.close()
 
-    def add_note(self, sleep_record_id: int, notes_text: str):
+    def add_note(self, sleep_record_id: int, note_text: str):
         """
         Добавляет или обновляет заметку к сессии сна с оценкой качества.
         Если заметка для указанной сессии сна уже существует, она будет обновлена,
         в противном случае будет создана новая.
         Это соответствует логике один-к-одному (одна запись о сне может иметь одну заметку).
         :param sleep_record_id: int: ID сессии сна.
-        :param notes_text: str: Текст заметки.
+        :param note_text: str: Текст заметки.
         """
+        if not note_text or not isinstance(note_text, str):
+            logger.warning(f'Попытка записать пустую или нетекстовую заметку для сессии {sleep_record_id}')
+            return False
         conn = None
         try:
             conn = sqlite3.connect(self.db_name)
             with conn:
                 cursor = conn.cursor()
                 cursor.execute("INSERT OR REPLACE INTO notes (sleep_record_id, notes_text) VALUES (?, ?)",
-                               (sleep_record_id, notes_text))
+                               (sleep_record_id, note_text))
             logger.info(f'Заметка к сессии сна {sleep_record_id} добавлена/обновлена.')
         except sqlite3.Error as e:
             logger.error(f'Ошибка при добавлении заметки к сессии сна: {e}', exc_info=True)
