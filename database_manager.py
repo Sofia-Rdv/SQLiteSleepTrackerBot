@@ -102,6 +102,27 @@ class DatabaseManager:
             if conn:
                 conn.close()
 
+    def get_user_by_id(self, user_id: int) -> tuple[int, str] | None:
+        """
+        Находит пользователя в БД по его id, если он существует.
+        :param user_id: int: ID пользователя в телеграмме.
+        :return: tuple[int, str] | None: Кортеж с данными пользователя (id и имя), если найден, иначе None.
+        """
+        conn = None
+        try:
+            conn = sqlite3.connect(self.db_name)
+            with conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id, name FROM users WHERE id = ?", (user_id,))
+                logger.info(f'Пользователь с ID {user_id} найден.')
+                return cursor.fetchone()
+        except sqlite3.Error as e:
+            logger.error(f'Ошибка при получении данных о пользователе: {e}', exc_info=True)
+            return None
+        finally:
+            if conn:
+                conn.close()
+
     def start_sleep_session(self, user_id: int, sleep_time: datetime) -> int | None:
         """
         Начинает новую сессию сна для указанного пользователя.
