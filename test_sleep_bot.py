@@ -4,12 +4,14 @@ from unittest.mock import MagicMock, patch
 
 # Мокаем TeleBot до импорта основного файла
 with patch('telebot.TeleBot') as mocked_bot_class:
-    # Создаем фейковый объект бота, который будет возвращаться при вызове telebot.TeleBot()
+    # Создаем фейковый объект бота
     mock_bot_instance = MagicMock()
-    # КРИТИЧЕСКИ ВАЖНО, делаем так!
+    # КРИТИЧЕСКИ ВАЖНО
+    # Когда функция является декоратором, возвращай эту функцию в целости и сохранности, без изменений
     mock_bot_instance.message_handler.return_value = lambda func: func
     mock_bot_instance.callback_query_handler.return_value = lambda func: func
 
+    # При вызове telebot.TeleBot() будет возвращаться фейковый объект бота
     mocked_bot_class.return_value = mock_bot_instance
     # Импортируем файл с ботом. Внутри файла sleep_bot.py переменная bot станет нашей пустышкой
     import sleep_bot
@@ -23,6 +25,21 @@ from pytest_mock import MockFixture
 # Фикстура БД ПРОВЕРЕНО
 @pytest.fixture
 def test_db(tmp_path):
+    """
+    Обеспечивает базу данных для интеграционных тестов Telegram-бота.
+
+    Выполняет следующие задачи:
+    1. Инициализирует изолированный экземпляр DatabaseManager в директории 'tmp_path'.
+    2. Создает необходимую структуру таблиц.
+    3. Подменяет (патчит) реальный объект 'db' в модуле 'sleep_bot' на тестовый экземпляр.
+
+    Это позволяет проводить 'сквозное' тестирование функций:
+    от сохранения данных в БД до формирования ботом корректных ответов пользователю
+    (текста, кнопок и разметки), не затрагивая основной файл БД.
+    
+    :param tmp_path: Встроенная фикстура pytest для создания временных путей.
+    :yield: Экземпляр DatabaseManager, интегрированный в модуль бота.
+    """
     from database_manager import DatabaseManager
     db_file = str(tmp_path/'test_sleep_bot.db')
     manager = DatabaseManager(db_name=db_file)
