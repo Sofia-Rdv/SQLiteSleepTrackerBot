@@ -1,0 +1,4 @@
+pyTelegramBotAPI
+PyYAML
+colorama
+pytest
