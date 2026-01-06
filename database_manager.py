@@ -1,8 +1,6 @@
 import sqlite3
 import logging
 from datetime import datetime, timedelta
-# Нужно для закрытия соединения с БД
-from contextlib import closing
 # Импортируем функцию настройки логирования из файла с конфигурацией
 from my_logger_config import setup_logging
 # Вызов функции настройки логирования (ОДИН РАЗ) при запуске программы

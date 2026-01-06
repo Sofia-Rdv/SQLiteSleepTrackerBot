@@ -3,7 +3,6 @@ import sqlite3
 import logging
 from datetime import datetime, date
 from typing import Any
-from pytest import LogCaptureFixture
 from unittest import mock
 from pytest_mock import MockFixture
 

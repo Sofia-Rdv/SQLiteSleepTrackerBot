@@ -272,7 +272,7 @@ def test_handle_sleep_successfully(test_db) -> None:
 
 def test_handle_sleep_with_unfinished_sleep_session(test_db) -> None:
     """
-    Тест обработки команды /sleep, когда уже есть активная сессия сна
+    Тест обработки команды /sleep, когда уже есть активная сессия сна.
     :param test_db: Фикстура тестовой базы данных.
     """
     # 1. Подготавливаем данные в тестовой БД
