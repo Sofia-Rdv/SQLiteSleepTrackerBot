@@ -1,5 +1,7 @@
 # Telegram-бот 'Sleep bot'
 
+![Tests](https://github.com/Sofia-Rdv/SQLiteSleepTrackerBot/actions/workflows/tests.yml/badge.svg)
+
 ## Обзор
 Этот проект представляет собой Telegram-бота на языке Python (библиотека telebot), интегрированного с базой данных SQLite.
 Бот предназначен для отслеживания циклов сна: пользователи могут фиксировать время начала и окончания сна, оценивать его качество и добавлять заметки.
