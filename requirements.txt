@@ -2,3 +2,4 @@ pyTelegramBotAPI
 PyYAML
 colorama
 pytest
+pytest-mock
